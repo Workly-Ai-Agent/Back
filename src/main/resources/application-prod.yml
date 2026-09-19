@@ -13,10 +13,10 @@ spring:
     show-sql: false
 
 jwt:
-  secret: "workly-dev-secret-key-change-me-in-production"
+  secret: ${JWT_SECRET}
   expiration-ms: 900000
   refresh-expiration-ms: 1209600000
-  cookie-secure: false
+  cookie-secure: ${JWT_COOKIE_SECURE:true}
 
 server:
   port: 8080

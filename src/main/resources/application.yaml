@@ -20,10 +20,10 @@ spring:
       path: /h2-console
 
 jwt:
-  secret: "workly-dev-secret-key-change-me-in-production"
+  secret: ${JWT_SECRET:workly-dev-secret-key-change-me-in-production}
   expiration-ms: 900000
   refresh-expiration-ms: 1209600000
-  cookie-secure: false
+  cookie-secure: ${JWT_COOKIE_SECURE:false}
 
 server:
   port: 8080
