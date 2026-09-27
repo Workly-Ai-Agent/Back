@@ -58,10 +58,12 @@ class WorkspaceService(
         return workspace.toResponse()
     }
 
-    fun getAll(): List<WorkspaceResponse> {
+    fun getAll(email: String): List<WorkspaceResponse> {
+        val user = userRepository.findByEmail(email)
+            .orElseThrow { IllegalArgumentException("User not found") }
 
-        return workspaceRepository.findAll()
-            .map { it.toResponse() }
+        return workspaceMemberRepository.findAllByUserId(user.id!!)
+            .map { it.workspace.toResponse() }
     }
 
     fun getByAdmin(adminId: Long): List<WorkspaceResponse> {

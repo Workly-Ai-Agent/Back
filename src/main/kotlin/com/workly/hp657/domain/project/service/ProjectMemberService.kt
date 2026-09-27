@@ -36,7 +36,7 @@ class ProjectMemberService(
                 IllegalArgumentException("프로젝트를 찾을 수 없습니다.")
             }
 
-        // 현재 사용자가 Workspace 관리자 또는 프로젝트 리더인지 확인
+        // 프로젝트 LEADER만 멤버를 관리할 수 있다.
         checkProjectManager(
             currentUser.id!!,
             projectId,
@@ -74,6 +74,9 @@ class ProjectMemberService(
             )
         }
 
+        if (request.role.uppercase() != "MEMBER") {
+            throw AccessDeniedException("Project LEADER 권한은 일반 멤버만 추가할 수 있습니다.")
+        }
         val member = ProjectMember(
             project = project,
             user = user,
@@ -143,6 +146,10 @@ class ProjectMemberService(
                     "프로젝트 멤버를 찾을 수 없습니다."
                 )
 
+        if (member.role == ProjectMemberRole.LEADER || request.role.uppercase() == "LEADER") {
+            throw AccessDeniedException("Project LEADER 권한은 변경할 수 없습니다.")
+        }
+
         member.role = ProjectMemberRole.valueOf(
             request.role.uppercase()
         )
@@ -195,10 +202,6 @@ class ProjectMemberService(
                 workspaceId,
                 userId
             )
-
-        if (workspaceMember?.role?.name == "ADMIN") {
-            return
-        }
 
         // 프로젝트 리더 확인
         val projectMember =

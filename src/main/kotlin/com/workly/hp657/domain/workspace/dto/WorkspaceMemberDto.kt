@@ -16,6 +16,8 @@ data class WorkspaceMemberResponse(
     val id: Long,
     val workspaceId: Long,
     val userId: Long,
+    val userName: String,
+    val email: String,
     val role: WorkspaceMemberRole,
     val joinedAt: LocalDateTime
 )

@@ -9,6 +9,7 @@ import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
+import org.springframework.security.core.Authentication
 
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}/members")
@@ -18,6 +19,7 @@ class WorkspaceMemberController(
 
     @PostMapping
     fun addMember(
+        authentication: Authentication,
         @PathVariable workspaceId: Long,
         @Valid @RequestBody request: WorkspaceMemberAddRequest
     ): ResponseEntity<ApiResponse<WorkspaceMemberResponse>> {
@@ -27,6 +29,7 @@ class WorkspaceMemberController(
             .body(
                 ApiResponse.success(
                     workspaceMemberService.addMember(
+                        authentication.name,
                         workspaceId,
                         request
                     )
@@ -64,6 +67,7 @@ class WorkspaceMemberController(
 
     @PatchMapping("/{memberId}")
     fun updateRole(
+        authentication: Authentication,
         @PathVariable workspaceId: Long,
         @PathVariable memberId: Long,
         @Valid @RequestBody request: WorkspaceMemberUpdateRequest
@@ -72,6 +76,7 @@ class WorkspaceMemberController(
         return ResponseEntity.ok(
             ApiResponse.success(
                 workspaceMemberService.updateRole(
+                    authentication.name,
                     workspaceId,
                     memberId,
                     request
@@ -82,11 +87,13 @@ class WorkspaceMemberController(
 
     @DeleteMapping("/{memberId}")
     fun removeMember(
+        authentication: Authentication,
         @PathVariable workspaceId: Long,
         @PathVariable memberId: Long
     ): ResponseEntity<ApiResponse<Unit>> {
 
         workspaceMemberService.removeMember(
+            authentication.name,
             workspaceId,
             memberId
         )

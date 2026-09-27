@@ -7,6 +7,7 @@ import com.workly.hp657.domain.workspace.dto.WorkspaceMemberUpdateRequest
 import com.workly.hp657.domain.workspace.entity.WorkspaceMember
 import com.workly.hp657.domain.workspace.repository.WorkspaceMemberRepository
 import com.workly.hp657.domain.workspace.repository.WorkspaceRepository
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -20,9 +21,12 @@ class WorkspaceMemberService(
 
     @Transactional
     fun addMember(
+        requesterEmail: String,
         workspaceId: Long,
         request: WorkspaceMemberAddRequest
     ): WorkspaceMemberResponse {
+
+        requireAdmin(requesterEmail, workspaceId)
 
         val workspace = workspaceRepository.findById(workspaceId)
             .orElseThrow {
@@ -94,11 +98,13 @@ class WorkspaceMemberService(
 
     @Transactional
     fun updateRole(
+        requesterEmail: String,
         workspaceId: Long,
         memberId: Long,
         request: WorkspaceMemberUpdateRequest
     ): WorkspaceMemberResponse {
 
+        requireAdmin(requesterEmail, workspaceId)
         val member = findMember(memberId)
 
         validateMemberWorkspace(
@@ -106,17 +112,22 @@ class WorkspaceMemberService(
             workspaceId
         )
 
-        member.role = request.role
+        if (member.role == WorkspaceMemberRole.ADMIN || request.role == WorkspaceMemberRole.ADMIN) {
+            throw AccessDeniedException("ADMIN 권한은 변경할 수 없습니다.")
+        }
+        member.role = WorkspaceMemberRole.MEMBER
 
         return member.toResponse()
     }
 
     @Transactional
     fun removeMember(
+        requesterEmail: String,
         workspaceId: Long,
         memberId: Long
     ) {
 
+        requireAdmin(requesterEmail, workspaceId)
         val member = findMember(memberId)
 
         validateMemberWorkspace(
@@ -125,6 +136,15 @@ class WorkspaceMemberService(
         )
 
         workspaceMemberRepository.delete(member)
+    }
+
+    private fun requireAdmin(email: String, workspaceId: Long) {
+        val requester = userRepository.findByEmail(email)
+            .orElseThrow { AccessDeniedException("인증된 사용자를 찾을 수 없습니다.") }
+        val member = workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, requester.id!!)
+        if (member?.role != WorkspaceMemberRole.ADMIN) {
+            throw AccessDeniedException("Workspace ADMIN만 권한을 관리할 수 있습니다.")
+        }
     }
 
     private fun findMember(
@@ -169,6 +189,8 @@ class WorkspaceMemberService(
             id = id!!,
             workspaceId = workspace.id!!,
             userId = user.id!!,
+            userName = user.name,
+            email = user.email,
             role = role,
             joinedAt = joinedAt
         )
