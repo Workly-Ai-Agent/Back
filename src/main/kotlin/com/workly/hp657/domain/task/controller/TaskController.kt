@@ -6,6 +6,7 @@ import com.workly.hp657.global.response.ApiResponse
 import org.springframework.http.ResponseEntity
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.*
+import com.workly.hp657.domain.task.entity.TaskStatus
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -28,4 +29,16 @@ class TaskController(
     fun create(@RequestBody request: TaskCreateRequest): ResponseEntity<ApiResponse<TaskResponse>> {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(taskService.create(request)))
     }
+
+    @PatchMapping("/{id}/status")
+    fun updateStatus(
+        @PathVariable id: Long,
+        @RequestParam status: TaskStatus
+    ): ResponseEntity<ApiResponse<TaskResponse>> {
+        return ResponseEntity.ok(ApiResponse.success(taskService.updateStatus(id, status)))
+    }
+
+    @PatchMapping("/{id}")
+    fun update(@PathVariable id: Long, @RequestBody request: TaskUpdateRequest): ResponseEntity<ApiResponse<TaskResponse>> =
+        ResponseEntity.ok(ApiResponse.success(taskService.update(id, request)))
 }
