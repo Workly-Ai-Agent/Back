@@ -36,11 +36,11 @@ class WorkspaceController(
     }
 
     @GetMapping
-    fun getAll(): ResponseEntity<ApiResponse<List<WorkspaceResponse>>> {
+    fun getAll(authentication: Authentication): ResponseEntity<ApiResponse<List<WorkspaceResponse>>> {
 
         return ResponseEntity.ok(
             ApiResponse.success(
-                workspaceService.getAll()
+                workspaceService.getAll(authentication.name)
             )
         )
     }
