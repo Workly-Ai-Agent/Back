@@ -1,0 +1,49 @@
+package com.workly.hp657.domain.chat.controller
+
+import com.workly.hp657.domain.chat.dto.MessageResponse
+import com.workly.hp657.domain.chat.dto.SendMessageRequest
+import com.workly.hp657.domain.chat.service.ChatService
+import com.workly.hp657.global.response.ApiResponse
+import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.*
+import java.security.Principal
+
+@RestController
+@RequestMapping("/api/chat")
+class ChatController(
+    private val chatService: ChatService
+) {
+
+    @PostMapping("/messages")
+    fun sendMessage(
+        principal: Principal,
+        @RequestBody request: SendMessageRequest
+    ): ResponseEntity<ApiResponse<MessageResponse>> {
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .body(
+                ApiResponse.success(
+                    chatService.sendMessage(principal.name, request)
+                )
+            )
+    }
+
+    @GetMapping("/conversations/{userId}")
+    fun getConversation(
+        principal: Principal,
+        @RequestParam workspaceId: Long,
+        @PathVariable userId: Long
+    ): ResponseEntity<ApiResponse<List<MessageResponse>>> {
+        return ResponseEntity.ok(
+            ApiResponse.success(
+                chatService.getConversation(principal.name, workspaceId, userId)
+            )
+        )
+    }
+
+    @GetMapping("/channels")
+    fun getChannel(principal: Principal, @RequestParam workspaceId: Long, @RequestParam(required = false) projectId: Long?, @RequestParam(required = false) receiverId: Long?): ResponseEntity<ApiResponse<List<MessageResponse>>> = ResponseEntity.ok(
+        ApiResponse.success(chatService.getChannel(principal.name, workspaceId, projectId, receiverId))
+    )
+}
