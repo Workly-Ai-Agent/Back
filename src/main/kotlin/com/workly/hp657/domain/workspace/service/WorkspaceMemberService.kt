@@ -5,6 +5,7 @@ import com.workly.hp657.domain.workspace.dto.WorkspaceMemberAddRequest
 import com.workly.hp657.domain.workspace.dto.WorkspaceMemberResponse
 import com.workly.hp657.domain.workspace.dto.WorkspaceMemberUpdateRequest
 import com.workly.hp657.domain.workspace.entity.WorkspaceMember
+import com.workly.hp657.domain.workspace.entity.WorkspaceMemberRole
 import com.workly.hp657.domain.workspace.repository.WorkspaceMemberRepository
 import com.workly.hp657.domain.workspace.repository.WorkspaceRepository
 import org.springframework.security.access.AccessDeniedException
