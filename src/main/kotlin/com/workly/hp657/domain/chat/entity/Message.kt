@@ -16,8 +16,8 @@ class Message(
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "sender_id")
     val sender: User,
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "receiver_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "receiver_id", nullable = true)
     val receiver: User? = null,
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "project_id")
