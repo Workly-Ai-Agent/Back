@@ -1,8 +1,12 @@
 package com.workly.hp657.domain.agent.dto
 
 import com.fasterxml.jackson.annotation.JsonAlias
+import com.workly.hp657.domain.agent.entity.ProposalMode
 
-data class AgentWorkflowRequest(val planText: String)
+data class AgentWorkflowRequest(
+    val planText: String,
+    val mode: ProposalMode = ProposalMode.REPLAN
+)
 
 data class AgentWorkflowResponse(
     val status: String,
@@ -36,6 +40,7 @@ data class AgentProposalResponse(
     val projectId: Long,
     val status: String,
     val requestText: String,
+    val mode: String = "REPLAN",
     val result: AgentWorkflowResponse,
     val createdAt: java.time.LocalDateTime,
     val requirementsStructuredCorrectly: Boolean?,

@@ -5,6 +5,7 @@ import com.workly.hp657.domain.agent.dto.*
 import com.workly.hp657.domain.project.repository.ProjectRepository
 import com.workly.hp657.domain.project.repository.ProjectMemberRepository
 import com.workly.hp657.domain.agent.entity.AgentProposal
+import com.workly.hp657.domain.agent.entity.ProposalMode
 import com.workly.hp657.domain.agent.entity.ProposalStatus
 import com.workly.hp657.domain.agent.repository.AgentProposalRepository
 import com.workly.hp657.domain.skill.repository.UserSkillRepository
@@ -50,7 +51,8 @@ class AgentService(
         val existingTasks = taskRepository.findAllByProjectId(projectId).filter { it.status != TaskStatus.CANCELLED }
         val proposedTitles = initialWorkflow.tasks.mapNotNull { it["task"]?.toString()?.trim()?.lowercase() }.toSet()
         val assignmentByTitle = initialWorkflow.assignments.associateBy { it["task"]?.toString()?.trim()?.lowercase() }
-        val impact = buildList {
+        val isChatUpdate = request.mode == ProposalMode.ADD_TASKS || request.mode == ProposalMode.CHAT_UPDATE
+        val impact = if (isChatUpdate) emptyList() else buildList {
             existingTasks.filter { it.status != TaskStatus.COMPLETED && it.title.trim().lowercase() !in proposedTitles }.forEach {
                 add("기존 Task가 새 계획에 포함되지 않았습니다. 승인 시 삭제하지 않고 계획 제외 상태로 보존합니다: #${it.id} ${it.title}")
             }
@@ -71,11 +73,43 @@ class AgentService(
                 }
             }
         }
-        val workflow = initialWorkflow.copy(monitoring = initialWorkflow.monitoring + impact)
+        val existingTitles = existingTasks.map { it.title.trim().lowercase() }.toSet()
+        val workflow = if (request.mode == ProposalMode.ADD_TASKS) {
+            val newTasks = initialWorkflow.tasks.filter { it["task"]?.toString()?.trim()?.lowercase().orEmpty() !in existingTitles }
+            val newTitles = newTasks.mapNotNull { it["task"]?.toString()?.trim()?.lowercase() }.toSet()
+            require(newTasks.isNotEmpty()) { "추가할 새 Task를 제안에서 찾지 못했습니다. 메시지를 더 구체적으로 작성해주세요." }
+            initialWorkflow.copy(
+                tasks = newTasks,
+                assignments = initialWorkflow.assignments.filter { it["task"]?.toString()?.trim()?.lowercase()?.let(newTitles::contains) == true },
+                monitoring = initialWorkflow.monitoring
+            )
+        } else if (request.mode == ProposalMode.CHAT_UPDATE) {
+            val existingByTitle = existingTasks.associateBy { it.title.trim().lowercase() }
+            val chatTasks = initialWorkflow.tasks.filter { data ->
+                val title = data["task"]?.toString()?.trim()?.lowercase().orEmpty()
+                val reference = data["task_reference"]?.toString()?.trim()?.lowercase() ?: title
+                reference !in existingByTitle || (data["changes"] as? List<*>)?.filterIsInstance<String>()?.isNotEmpty() == true
+            }
+            require(chatTasks.isNotEmpty()) { "채팅 메시지에서 반영할 Task 추가 또는 변경을 찾지 못했습니다. 요청을 더 구체적으로 작성해주세요." }
+            val chatTaskTitles = chatTasks.mapNotNull { it["task"]?.toString()?.trim()?.lowercase() }.toSet()
+            val preservedAssignments = initialWorkflow.assignments.map { assignment ->
+                val title = assignment["task"]?.toString()?.trim()?.lowercase()
+                val data = chatTasks.firstOrNull { it["task"]?.toString()?.trim()?.lowercase() == title }
+                val reference = data?.get("task_reference")?.toString()?.trim()?.lowercase() ?: title
+                val existing = reference?.let(existingByTitle::get)
+                val changes = (data?.get("changes") as? List<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
+                if (existing != null && "assignee" !in changes) {
+                    assignment + mapOf("assignee" to existing.assignee?.name, "reason" to "기존 담당자를 유지합니다.")
+                } else assignment
+            }.filter { it["task"]?.toString()?.trim()?.lowercase()?.let(chatTaskTitles::contains) == true }
+            initialWorkflow.copy(tasks = chatTasks, assignments = preservedAssignments)
+        } else {
+            initialWorkflow.copy(monitoring = initialWorkflow.monitoring + impact)
+        }
         require(workflow.violations.isEmpty()) { "검증 오류가 있어 승인 요청을 만들지 않았습니다: ${workflow.violations.joinToString()}" }
         val proposal = proposalRepository.save(AgentProposal(
             project = project, createdBy = creator, requestText = request.planText,
-            resultJson = objectMapper.writeValueAsString(workflow)
+            resultJson = objectMapper.writeValueAsString(workflow), mode = request.mode
         ))
         return proposalResponse(proposal)
     }
@@ -95,6 +129,12 @@ class AgentService(
         check(proposal.status == ProposalStatus.PENDING) { "대기 중인 제안만 승인할 수 있습니다." }
         val result = objectMapper.readValue(proposal.resultJson, AgentWorkflowResponse::class.java)
         require(result.violations.isEmpty()) { "검증 오류가 있는 제안은 승인할 수 없습니다." }
+        if (proposal.mode == ProposalMode.ADD_TASKS) {
+            return approveAddedTasks(proposal, result)
+        }
+        if (proposal.mode == ProposalMode.CHAT_UPDATE) {
+            return approveChatUpdate(proposal, result)
+        }
         val members = projectMemberRepository.findAllByProjectId(proposal.project.id!!).associateBy { it.user.name }
         val assignments = result.assignments.associateBy { it["task"]?.toString() }
         val activeTasks = taskRepository.findAllByProjectId(proposal.project.id!!).filter { it.status != TaskStatus.CANCELLED }
@@ -142,6 +182,122 @@ class AgentService(
         proposal.status = ProposalStatus.APPROVED
         proposal.updatedAt = java.time.LocalDateTime.now()
         return created
+    }
+
+    private fun approveAddedTasks(proposal: AgentProposal, result: AgentWorkflowResponse): List<TaskResponse> {
+        val projectId = proposal.project.id!!
+        val existingByTitle = taskRepository.findAllByProjectId(projectId)
+            .filter { it.status != TaskStatus.CANCELLED }
+            .associateBy { it.title.trim().lowercase() }
+        val members = projectMemberRepository.findAllByProjectId(projectId).associateBy { it.user.name }
+        val assignments = result.assignments.associateBy { it["task"]?.toString()?.trim()?.lowercase() }
+        val addedByTitle = linkedMapOf<String, Task>()
+
+        result.tasks.forEach { data ->
+            val title = data["task"]?.toString()?.trim()?.takeIf(String::isNotBlank) ?: return@forEach
+            val key = title.lowercase()
+            if (key in existingByTitle) return@forEach
+            val assignment = assignments[key]
+            val assigneeName = assignment?.get("assignee")?.toString()
+            val assignee = assigneeName?.let { members[it]?.user }
+            require(assigneeName == null || assignee != null) { "프로젝트 외부 사용자가 담당자로 제안되었습니다: $assigneeName" }
+            val description = buildString {
+                data["description"]?.toString()?.takeIf(String::isNotBlank)?.let { append(it) }
+                (data["required_skills"] as? List<*>)?.filterIsInstance<String>()?.takeIf { it.isNotEmpty() }?.let { append("\n필요 Skill: ").append(it.joinToString(", ")) }
+                (data["depends_on"] as? List<*>)?.filterIsInstance<String>()?.takeIf { it.isNotEmpty() }?.let { append("\n선행 Task: ").append(it.joinToString(", ")) }
+                assignment?.get("reason")?.toString()?.takeIf(String::isNotBlank)?.let { append("\n배정 근거: ").append(it) }
+            }
+            val task = Task(title = title, description = description.ifBlank { null }, project = proposal.project, assignee = assignee)
+            (data["priority"] as? String)?.let { task.priority = TaskPriority.valueOf(it.uppercase()) }
+            (data["start_at"] as? String)?.takeIf(String::isNotBlank)?.let { task.startAt = parsePlanDate(it) }
+            (data["due_at"] as? String)?.takeIf(String::isNotBlank)?.let { task.dueAt = parsePlanDate(it) }
+            addedByTitle[key] = taskRepository.save(task)
+        }
+
+        val allByTitle = existingByTitle + addedByTitle
+        result.tasks.forEach { data ->
+            val title = data["task"]?.toString()?.trim() ?: return@forEach
+            val task = addedByTitle[title.lowercase()] ?: return@forEach
+            val dependencyNames = (data["depends_on"] as? List<*>)?.filterIsInstance<String>().orEmpty()
+            require(dependencyNames.all { it.trim().lowercase() in allByTitle }) { "제안에 존재하지 않는 선행 Task가 있습니다: $title" }
+            require(dependencyNames.none { it.trim().equals(title, ignoreCase = true) }) { "Task가 자신을 선행 Task로 지정할 수 없습니다: $title" }
+            task.dependencies.addAll(dependencyNames.mapNotNull { allByTitle[it.trim().lowercase()] })
+            taskRepository.save(task)
+        }
+        proposal.status = ProposalStatus.APPROVED
+        proposal.updatedAt = LocalDateTime.now()
+        return addedByTitle.values.map(TaskResponse::from)
+    }
+
+    private fun approveChatUpdate(proposal: AgentProposal, result: AgentWorkflowResponse): List<TaskResponse> {
+        val projectId = proposal.project.id!!
+        val existingByTitle = taskRepository.findAllByProjectId(projectId)
+            .filter { it.status != TaskStatus.CANCELLED }
+            .associateBy { it.title.trim().lowercase() }
+        val members = projectMemberRepository.findAllByProjectId(projectId).associateBy { it.user.name }
+        val assignments = result.assignments.associateBy { it["task"]?.toString()?.trim()?.lowercase() }
+        val changedByTitle = linkedMapOf<String, Task>()
+
+        result.tasks.forEach { data ->
+            val title = data["task"]?.toString()?.trim()?.takeIf(String::isNotBlank) ?: return@forEach
+            val key = title.lowercase()
+            val referenceKey = (data["task_reference"]?.toString()?.trim()?.takeIf(String::isNotBlank) ?: title).lowercase()
+            val changes = (data["changes"] as? List<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
+            val existing = existingByTitle[referenceKey]
+            val task = existing ?: run {
+                val assignment = assignments[key]
+                val assigneeName = assignment?.get("assignee")?.toString()
+                val assignee = assigneeName?.let { members[it]?.user }
+                require(assigneeName == null || assignee != null) { "프로젝트 외부 사용자가 담당자로 제안되었습니다: $assigneeName" }
+                val description = buildString {
+                    data["description"]?.toString()?.takeIf(String::isNotBlank)?.let { append(it) }
+                    (data["required_skills"] as? List<*>)?.filterIsInstance<String>()?.takeIf { it.isNotEmpty() }?.let { append("\n필요 Skill: ").append(it.joinToString(", ")) }
+                    assignment?.get("reason")?.toString()?.takeIf(String::isNotBlank)?.let { append("\n배정 근거: ").append(it) }
+                }
+                Task(title = title, description = description.ifBlank { null }, project = proposal.project, assignee = assignee).also {
+                    (data["priority"] as? String)?.let { priority -> it.priority = TaskPriority.valueOf(priority.uppercase()) }
+                    (data["start_at"] as? String)?.takeIf(String::isNotBlank)?.let { start -> it.startAt = parsePlanDate(start) }
+                    (data["due_at"] as? String)?.takeIf(String::isNotBlank)?.let { due -> it.dueAt = parsePlanDate(due) }
+                    (data["status"] as? String)?.let { status -> it.status = TaskStatus.valueOf(status.uppercase()) }
+                }
+            }
+
+            if (existing != null) {
+                if ("title" in changes) task.title = title
+                if ("description" in changes) task.description = data["description"]?.toString()?.takeIf(String::isNotBlank)
+                if ("priority" in changes) (data["priority"] as? String)?.let { task.priority = TaskPriority.valueOf(it.uppercase()) }
+                if ("start_at" in changes) task.startAt = data["start_at"]?.toString()?.takeIf(String::isNotBlank)?.let(::parsePlanDate)
+                if ("due_at" in changes) task.dueAt = data["due_at"]?.toString()?.takeIf(String::isNotBlank)?.let(::parsePlanDate)
+                if ("status" in changes) (data["status"] as? String)?.let { task.status = TaskStatus.valueOf(it.uppercase()) }
+                if ("assignee" in changes) {
+                    val assigneeName = assignments[key]?.get("assignee")?.toString()
+                    val assignee = assigneeName?.let { members[it]?.user }
+                    require(assigneeName == null || assignee != null) { "프로젝트 외부 사용자가 담당자로 제안되었습니다: $assigneeName" }
+                    task.assignee = assignee
+                }
+            }
+            task.updatedAt = LocalDateTime.now()
+            changedByTitle[key] = taskRepository.save(task)
+        }
+
+        val allByTitle = existingByTitle + changedByTitle
+        result.tasks.forEach { data ->
+            val title = data["task"]?.toString()?.trim() ?: return@forEach
+            val task = changedByTitle[title.lowercase()] ?: return@forEach
+            val referenceKey = (data["task_reference"]?.toString()?.trim()?.takeIf(String::isNotBlank) ?: title).lowercase()
+            val isExisting = referenceKey in existingByTitle
+            val changes = (data["changes"] as? List<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
+            if (isExisting && "depends_on" !in changes) return@forEach
+            val dependencyNames = (data["depends_on"] as? List<*>)?.filterIsInstance<String>().orEmpty()
+            require(dependencyNames.all { it.trim().lowercase() in allByTitle }) { "제안에 존재하지 않는 선행 Task가 있습니다: $title" }
+            require(dependencyNames.none { it.trim().equals(title, ignoreCase = true) }) { "Task가 자신을 선행 Task로 지정할 수 없습니다: $title" }
+            task.dependencies.clear()
+            task.dependencies.addAll(dependencyNames.mapNotNull { allByTitle[it.trim().lowercase()] })
+            taskRepository.save(task)
+        }
+        proposal.status = ProposalStatus.APPROVED
+        proposal.updatedAt = LocalDateTime.now()
+        return changedByTitle.values.map(TaskResponse::from)
     }
 
     @Transactional
@@ -203,6 +359,7 @@ class AgentService(
     private fun proposalResponse(proposal: AgentProposal) = AgentProposalResponse(
         id = proposal.id!!, projectId = proposal.project.id!!, status = proposal.status.name,
         requestText = proposal.requestText,
+        mode = proposal.mode?.name ?: ProposalMode.REPLAN.name,
         result = objectMapper.readValue(proposal.resultJson, AgentWorkflowResponse::class.java),
         createdAt = proposal.createdAt,
         requirementsStructuredCorrectly = proposal.requirementsStructuredCorrectly,
@@ -226,7 +383,8 @@ class AgentService(
         val payload = mapOf(
             "project_name" to project.name,
             "plan_text" to request.planText,
-            "employees" to members
+            "employees" to members,
+            "mode" to request.mode.name
         )
         return post("/api/agent/workflow", objectMapper.writeValueAsString(payload), AgentWorkflowResponse::class.java)
     }
