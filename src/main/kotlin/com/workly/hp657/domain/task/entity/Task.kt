@@ -27,6 +27,15 @@ class Task(
     @JoinColumn(name = "assignee_id")
     var assignee: User? = null,
 
+    @ManyToMany
+    @JoinTable(
+        name = "task_dependencies",
+        joinColumns = [JoinColumn(name = "task_id")],
+        inverseJoinColumns = [JoinColumn(name = "depends_on_task_id")],
+        uniqueConstraints = [UniqueConstraint(columnNames = ["task_id", "depends_on_task_id"])]
+    )
+    var dependencies: MutableSet<Task> = linkedSetOf(),
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     var status: TaskStatus = TaskStatus.TODO,
@@ -52,7 +61,8 @@ enum class TaskStatus {
     TODO,
     IN_PROGRESS,
     COMPLETED,
-    BLOCKED
+    BLOCKED,
+    CANCELLED
 }
 
 enum class TaskPriority {

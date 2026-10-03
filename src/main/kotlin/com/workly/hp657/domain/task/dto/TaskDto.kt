@@ -32,10 +32,13 @@ data class TaskResponse(
     val description: String?,
     val assigneeId: Long?,
     val assigneeName: String?,
+    val dependsOn: List<Long>,
+    val dependencyTitles: List<String>,
     val status: TaskStatus,
     val priority: TaskPriority,
     val startAt: LocalDateTime?,
     val dueAt: LocalDateTime?,
+    val overdue: Boolean,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime
 ) {
@@ -48,13 +51,27 @@ data class TaskResponse(
                 description = task.description,
                 assigneeId = task.assignee?.id,
                 assigneeName = task.assignee?.name,
+                dependsOn = task.dependencies.mapNotNull { it.id },
+                dependencyTitles = task.dependencies.map { it.title },
                 status = task.status,
                 priority = task.priority,
                 startAt = task.startAt,
                 dueAt = task.dueAt,
+                overdue = task.dueAt?.isBefore(LocalDateTime.now()) == true &&
+                    task.status != TaskStatus.COMPLETED && task.status != TaskStatus.CANCELLED,
                 createdAt = task.createdAt,
                 updatedAt = task.updatedAt
             )
         }
     }
 }
+
+data class DependencyBlockResponse(val taskId: Long, val taskTitle: String, val blockedBy: List<String>)
+data class TaskMonitorResponse(
+    val overdue: List<TaskResponse>,
+    val unassigned: List<TaskResponse>,
+    val dependencyBlocked: List<DependencyBlockResponse>
+)
+
+data class ProjectStatusSummary(val projectId: Long, val projectName: String, val active: Int, val completed: Int, val overdue: Int, val unassigned: Int)
+data class WorkspaceTaskSummary(val workspaceId: Long, val active: Int, val completed: Int, val overdue: Int, val unassigned: Int, val projects: List<ProjectStatusSummary>)
