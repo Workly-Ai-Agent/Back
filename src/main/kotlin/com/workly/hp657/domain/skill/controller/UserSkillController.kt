@@ -7,6 +7,7 @@ import com.workly.hp657.global.response.ApiResponse
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
+import org.springframework.security.core.Authentication
 
 @RestController
 @RequestMapping("/api/users/{userId}/skills")
@@ -16,26 +17,29 @@ class UserSkillController(
 
     @GetMapping
     fun getUserSkills(
+        authentication: Authentication,
         @PathVariable userId: Long
     ): ResponseEntity<ApiResponse<List<UserSkillResponse>>> {
-        return ResponseEntity.ok(ApiResponse.success(userSkillService.getUserSkills(userId)))
+        return ResponseEntity.ok(ApiResponse.success(userSkillService.getUserSkills(authentication.name, userId)))
     }
 
     @PostMapping
     fun addUserSkill(
+        authentication: Authentication,
         @PathVariable userId: Long,
         @RequestBody request: UserSkillCreateRequest
     ): ResponseEntity<ApiResponse<UserSkillResponse>> {
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success(userSkillService.addUserSkill(userId, request)))
+            .body(ApiResponse.success(userSkillService.addUserSkill(authentication.name, userId, request)))
     }
 
     @DeleteMapping("/{userSkillId}")
     fun deleteUserSkill(
+        authentication: Authentication,
         @PathVariable userId: Long,
         @PathVariable userSkillId: Long
     ): ResponseEntity<ApiResponse<Unit>> {
-        userSkillService.deleteUserSkill(userSkillId)
+        userSkillService.deleteUserSkill(authentication.name, userId, userSkillId)
         return ResponseEntity.ok(ApiResponse.success("사용자 스킬이 삭제되었습니다."))
     }
 }
