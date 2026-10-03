@@ -61,6 +61,9 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login", "/api/auth/refresh").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                     .requestMatchers("/h2-console/**").permitAll()
+                    // Browser WebSocket handshakes cannot set Authorization headers;
+                    // the STOMP CONNECT frame is authenticated by WebSocketAuthInterceptor.
+                    .requestMatchers("/ws", "/ws/**").permitAll()
                     .anyRequest().authenticated()
             }
             .exceptionHandling { exceptions ->
