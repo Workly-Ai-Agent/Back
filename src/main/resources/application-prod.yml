@@ -2,10 +2,10 @@ spring:
   application:
     name: hp657
   datasource:
-    url: ${SPRING_DATASOURCE_URL}             # 배포 플랫폼이 채워줄 공간
+    url: ${SPRING_DATASOURCE_URL}
     driver-class-name: org.postgresql.Driver
-    username: ${SPRING_DATASOURCE_USERNAME}   # 배포 플랫폼이 채워줄 공간
-    password: ${SPRING_DATASOURCE_PASSWORD}   # 배포 플랫폼이 채워줄 공간
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
@@ -23,3 +23,8 @@ cors:
 
 server:
   port: ${PORT:8080}
+
+logging:
+  level:
+    org.hibernate.tool.schema: DEBUG
+    org.hibernate.SQL: DEBUG
