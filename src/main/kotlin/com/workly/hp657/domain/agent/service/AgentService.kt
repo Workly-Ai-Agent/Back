@@ -36,7 +36,8 @@ class AgentService(
     private val userSkillRepository: UserSkillRepository,
     private val taskRepository: TaskRepository,
     private val objectMapper: ObjectMapper,
-    @Value("\${agent.base-url:http://localhost:8000}") private val agentBaseUrl: String
+    @Value("\${agent.base-url:http://localhost:8000}") private val agentBaseUrl: String,
+    @Value("\${agent.request-timeout-seconds:600}") private val agentRequestTimeoutSeconds: Long
 ) {
     private val httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
@@ -406,7 +407,7 @@ class AgentService(
             .version(HttpClient.Version.HTTP_1_1)
             // Planner와 Assignment가 여러 번 호출될 수 있으므로 브라우저 요청보다
             // 충분히 긴 서버-서버 타임아웃을 사용한다.
-            .timeout(Duration.ofSeconds(240))
+            .timeout(Duration.ofSeconds(agentRequestTimeoutSeconds))
             .uri(URI.create(agentBaseUrl.trimEnd('/') + path))
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")

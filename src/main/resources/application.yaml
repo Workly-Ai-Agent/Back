@@ -38,3 +38,4 @@ server:
 
 agent:
   base-url: ${AGENT_BASE_URL:http://localhost:8000}
+  request-timeout-seconds: ${AGENT_REQUEST_TIMEOUT_SECONDS:600}
